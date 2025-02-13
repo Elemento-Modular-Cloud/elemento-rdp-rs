@@ -798,10 +798,7 @@ impl Client {
     /// )
     /// ```
     pub fn write_input_event<S: Read + Write>(&self, event: TSInputEvent, mcs: &mut mcs::Client<S>) -> RdpResult<()> {
-        match self.state {
-            ClientState::Data => Ok(self.write_data_pdu(ts_input_pdu_data(Some(Array::from_trame(trame![ts_input_event(Some(event.event_type), Some(to_vec(&event.message)))]))), mcs)?),
-            _ => Err(Error::RdpError(RdpError::new(RdpErrorKind::InvalidAutomata, "You cannot send data once it's not connected")))
-        }
+        self.write_data_pdu(ts_input_pdu_data(Some(Array::from_trame(trame![ts_input_event(Some(event.event_type), Some(to_vec(&event.message)))]))), mcs)
     }
 
     /// Read payload on global channel

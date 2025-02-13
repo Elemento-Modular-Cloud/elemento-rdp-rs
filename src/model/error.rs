@@ -16,8 +16,8 @@ pub enum RdpErrorKind {
     InvalidRespond,
     /// Features not implemented
     NotImplemented,
-    /// During connection sequence
-    /// A security level is negotiated
+    /// During conncetion sequence
+    /// A securtiy level is negotiated
     /// If no level can be defined a ProtocolNegFailure is emitted
     ProtocolNegFailure,
     /// Protocol automata transition is not expected

@@ -1,8 +1,11 @@
 #! /bin/bash
 
 # Build the project
-cargo build
+cargo clean
+cargo build --release
 cargo install --path . --features=mstsc-rs
 
 # Create a symlink to the mstsc-rs binary
-ln -s target/debug/mstsc-rs mstsc-rs
+echo "Creating symlink to mstsc-rs binary"
+rm -f mstsc-rs
+ln -s target/release/mstsc-rs mstsc-rs

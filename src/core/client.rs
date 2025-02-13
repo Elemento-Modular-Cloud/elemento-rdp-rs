@@ -120,21 +120,6 @@ impl<S: Read + Write> RdpClient<S> {
         }
     }
 
-    /// This function will ignore input event
-    /// once the global channel is not connected
-    /// This will disable InvalidAutomata error in case
-    /// if you sent input before end of the sync process
-    pub fn try_write(&mut self, event: RdpEvent) -> RdpResult<()> {
-        let result = self.write(event);
-        match result {
-            Err(Error::RdpError(e)) => match e.kind() {
-                RdpErrorKind::InvalidAutomata => Ok(()),
-                _ => Err(Error::RdpError(e))
-            },
-            _ => result
-        }
-    }
-
     /// Close client is indeed close the switch layer
     pub fn shutdown(&mut self) -> RdpResult<()> {
         self.mcs.shutdown()
@@ -149,7 +134,7 @@ pub struct Connector {
     /// Keyboard layout
     layout: KeyboardLayout,
     /// Restricted admin mode
-    /// This mode protect against credential forward
+    /// This mode protect againt credential forward
     restricted_admin_mode: bool,
     /// Microsoft Domain
     /// If you don't care keep empty
@@ -160,7 +145,7 @@ pub struct Connector {
     password: String,
     /// When you only want to pass the hash
     password_hash: Option<Vec<u8>>,
-    /// Set auto logon flags during security logon
+    /// Set autologon flags during security logon
     auto_logon: bool,
     /// Do not send creds to CredSSP
     blank_creds: bool,

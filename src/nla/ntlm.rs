@@ -7,7 +7,8 @@ use md4::{Md4, Digest};
 use hmac::{Hmac, Mac};
 use md5::{Md5};
 use model::rnd::{random};
-use nla::rc4::{Rc4};
+use crypto::rc4::{Rc4};
+use crypto::symmetriccipher::SynchronousStreamCipher;
 use num_enum::TryFromPrimitive;
 use std::convert::TryFrom;
 
@@ -650,8 +651,9 @@ impl NTLMv2SecurityInterface {
     ///
     /// # Example
     /// ```no_run
+    /// extern crate crypto;
     /// use rdp::nla::ntlm::NTLMv2SecurityInterface;
-    /// use rdp::nla::rc4::Rc4;
+    /// use crypto::rc4::Rc4;
     /// let interface = NTLMv2SecurityInterface::new(Rc4::new(b"encrypt"), Rc4::new(b"decrypt"), b"signing".to_vec(), b"verify".to_vec());
     /// ```
     pub fn new(encrypt: Rc4, decrypt: Rc4, signing_key: Vec<u8>, verify_key: Vec<u8>) -> Self {
@@ -671,8 +673,9 @@ impl GenericSecurityService for NTLMv2SecurityInterface {
     ///
     /// # Example
     /// ```
+    /// extern crate crypto;
     /// use rdp::nla::ntlm::NTLMv2SecurityInterface;
-    /// use rdp::nla::rc4::Rc4;
+    /// use crypto::rc4::Rc4;
     /// use rdp::nla::sspi::GenericSecurityService;
     /// let mut interface = NTLMv2SecurityInterface::new(Rc4::new(b"encrypt"), Rc4::new(b"decrypt"), b"signing".to_vec(), b"verify".to_vec());
     /// assert_eq!(interface.gss_wrapex(b"foo").unwrap(), [1, 0, 0, 0, 142, 146, 37, 160, 247, 244, 100, 58, 0, 0, 0, 0, 87, 164, 208]);
@@ -691,8 +694,9 @@ impl GenericSecurityService for NTLMv2SecurityInterface {
     ///
     /// # Example
     /// ```
+    /// extern crate crypto;
     /// use rdp::nla::ntlm::NTLMv2SecurityInterface;
-    /// use rdp::nla::rc4::Rc4;
+    /// use crypto::rc4::Rc4;
     /// use rdp::nla::sspi::GenericSecurityService;
     /// let mut interface = NTLMv2SecurityInterface::new(Rc4::new(b"decrypt"), Rc4::new(b"encrypt"), b"verify".to_vec(), b"signing".to_vec());
     /// assert_eq!(interface.gss_unwrapex(&vec![1, 0, 0, 0, 142, 146, 37, 160, 247, 244, 100, 58, 0, 0, 0, 0, 87, 164, 208]).unwrap(), b"foo");
