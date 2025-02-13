@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>RDP Client</title>
+    <style>
+        #rdp-canvas {
+            border: 1px solid #ccc;
+        }
+        .connection-form {
+            margin-bottom: 20px;
+        }
+        .connection-form input {
+            margin: 5px;
+            padding: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="connection-form">
+        <button onclick="connect()">Connect</button>
+        <button onclick="disconnect()">Disconnect</button>
+    </div>
+    
+    <canvas id="rdp-canvas" width="1024" height="768"></canvas>
+    
+    <script src="rdp-client.js"></script>
+    <script>
+        const rdpClient = new RDPClient('rdp-canvas');
+        
+        function connect() {
+            rdpClient.connect();
+        }
+        
+        function disconnect() {
+            rdpClient.disconnect();
+        }
+    </script>
+</body>
+</html> 

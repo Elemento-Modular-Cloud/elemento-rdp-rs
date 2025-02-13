@@ -1,6 +1,7 @@
 [package]
 name = "rdp-rs"
 version = "0.2.0"
+edition = "2015"
 authors = ["Sylvain Peyrefitte <citronneur@gmail.com>", "Gabriele Gaetano Fronze <gabriele.fronze@elemento.cloud>"]
 description = "A Pure RUST implementation of Remote Desktop Protocol"
 repository = "https://github.com/Elemento-Modular-Cloud/elemento-rdp-rs"
@@ -46,3 +47,6 @@ winapi = { version = "^0.3", features = ["winsock2"], optional = true }
 minifb = { version = "^0.15", optional = true }
 clap = { version = "^2.33", optional = true}
 libc = { version = "^0.2", optional = true}
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+websocket = "0.26"
