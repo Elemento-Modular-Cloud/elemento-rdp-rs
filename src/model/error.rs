@@ -56,7 +56,7 @@ pub struct RdpError {
     /// Kind of error
     kind: RdpErrorKind,
     /// Associated message of the context
-    message: String
+    _message: String
 }
 
 impl RdpError {
@@ -69,7 +69,7 @@ impl RdpError {
     pub fn new (kind: RdpErrorKind, message: &str) -> Self {
         RdpError {
             kind,
-            message: String::from(message)
+            _message: String::from(message)
         }
     }
 

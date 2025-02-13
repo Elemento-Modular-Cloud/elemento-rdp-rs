@@ -1,8 +1,8 @@
 [package]
 name = "rdp-rs"
-version = "0.1.0"
-authors = ["Sylvain Peyrefitte <citronneur@gmail.com>"]
-description = "A Pure RUST imlementation of Remote Desktop Protocol"
+version = "0.2.0"
+authors = ["Sylvain Peyrefitte <citronneur@gmail.com>", "Gabriele Gaetano Fronze <gabriele.fronze@elemento.cloud>"]
+description = "A Pure RUST implementation of Remote Desktop Protocol"
 repository = "https://github.com/Elemento-Modular-Cloud/elemento-rdp-rs"
 readme = "README.md"
 keywords = ["rdp", "security", "network", "windows"]

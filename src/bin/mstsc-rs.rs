@@ -318,7 +318,7 @@ fn window_from_args(args: &ArgMatches) -> RdpResult<Window> {
     })?;
 
     let window = Window::new(
-        "mstsc-rs Remote Desktop in Rust",
+        "Elemento Remote Desktop in Rust",
         width,
         height,
         WindowOptions {
@@ -467,8 +467,8 @@ fn main_gui_loop<S: Read + Write>(
 fn main() {
     // Parsing argument
     let matches = App::new(APPLICATION_NAME)
-        .version("0.1.0")
-        .author("Sylvain Peyrefitte <citronneur@gmail.com>")
+        .version("0.2.0")
+        .author("Sylvain Peyrefitte <citronneur@gmail.com>, Gabriele Gaetano Fronze <gabriele.fronze@elemento.cloud>")
         .about("Secure Remote Desktop Client in RUST")
         .arg(Arg::with_name("target")
                  .long("target")
