@@ -437,7 +437,12 @@ fn handle_websocket(
                     let mut client = rdp_client.lock().unwrap();
                     match event {
                         WsInputEvent::Mouse { x, y, button, down } => {
-                            // Use TryFrom instead of From
+                            // Log mouse event details
+                            println!("[{}] Mouse event: pos=({}, {}), button={}, {}", 
+                                client_addr, x, y, button, 
+                                if down { "pressed" } else { "released" }
+                            );
+                            
                             let pointer_button = PointerButton::try_from(button).unwrap_or(PointerButton::None);
                             if let Err(e) = client.write(RdpEvent::Pointer(PointerEvent {
                                 x: x as u16,
@@ -449,6 +454,12 @@ fn handle_websocket(
                             }
                         }
                         WsInputEvent::Keyboard { code, down } => {
+                            // Log keyboard event details
+                            println!("[{}] Keyboard event: key=0x{:04x} ({})", 
+                                client_addr, code,
+                                if down { "pressed" } else { "released" }
+                            );
+                            
                             if let Err(e) = client.write(RdpEvent::Key(KeyboardEvent {
                                 code,
                                 down

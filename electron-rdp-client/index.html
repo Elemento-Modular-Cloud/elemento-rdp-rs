@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>RDP Client</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+        #rdp-canvas {
+            border: 1px solid #ccc;
+            flex: 1;
+            min-height: 0; /* Prevents flex overflow */
+        }
+        .connection-form {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .connection-form div {
+            display: flex;
+            align-items: center;
+        }
+        .connection-form input {
+            padding: 5px;
+            width: 150px;
+        }
+        .connection-form label {
+            margin-right: 5px;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
+</head>
+<body>
+    <div class="connection-form">
+        <div>
+            <label for="ip">IP:</label>
+            <input type="text" id="ip" placeholder="192.168.1.1" value="192.168.70.2" required>
+        </div>
+        <div>
+            <label for="username">User:</label>
+            <input type="text" id="username" value="gfronze" required>
+        </div>
+        <div>
+            <label for="domain">Domain:</label>
+            <input type="text" id="domain" placeholder="(optional)">
+        </div>
+        <div>
+            <label for="password">Pass:</label>
+            <input type="password" id="password" required>
+        </div>
+        <button onclick="connect()">Connect</button>
+        <button onclick="disconnect()">Disconnect</button>
+    </div>
+    
+    <canvas id="rdp-canvas"></canvas>
+    
+    <script src="./rdp-client.js"></script>
+    <script>
+        const rdpClient = new RDPClient('rdp-canvas');
+        
+        function connect() {
+            const ip = document.getElementById('ip').value;
+            const username = document.getElementById('username').value;
+            const domain = document.getElementById('domain').value;
+            const password = document.getElementById('password').value;
+            
+            if (!ip || !username || !password) {
+                alert('Please fill in required fields (IP, Username, Password)');
+                return;
+            }
+            
+            const credentials = {
+                ip,
+                username: domain ? `${domain}\\${username}` : username,
+                password
+            };
+            
+            rdpClient.connect(credentials);
+        }
+        
+        function disconnect() {
+            rdpClient.disconnect();
+        }
+    </script>
+</body>
+</html> 
