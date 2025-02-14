@@ -27,9 +27,9 @@ class RDPClient {
         };
 
         this.ws.onmessage = (event) => {
-            // Add frame rate limiting (1 FPS = 1000ms between frames)
+            // // Add frame rate limiting (1 FPS = 1000ms between frames)
             // const now = Date.now();
-            // if (now - this.lastFrameTime < 1000) {
+            // if (now - this.lastFrameTime < 100) {
             //     return;  // Skip this frame if less than 1 second has passed
             // }
             // this.lastFrameTime = now;
@@ -58,74 +58,53 @@ class RDPClient {
         console.log('Received bitmap:', {
             width: bitmap.width,
             height: bitmap.height,
-            dest_left: bitmap.dest_left,
-            dest_right: bitmap.dest_right,
-            dest_top: bitmap.dest_top,
-            dest_bottom: bitmap.dest_bottom,
-            bpp: bitmap.bpp,
-            dataLength: bitmap.data?.length,
-            is_compress: bitmap.is_compress,
-            data: bitmap.data
+            dataLength: bitmap.buffer?.length
         });
 
         // Verify that we have valid bitmap data
-        if (!bitmap.data || bitmap.data.length === 0) {
+        if (!bitmap.buffer || bitmap.buffer.length === 0) {
             console.error('Invalid or empty bitmap data received');
             return;
         }
 
-        // The bitmap is always 64x64
-        const srcWidth = bitmap.width;
-        const srcHeight = bitmap.height;
-        
-        // Calculate the actual update region width and height
-        const updateWidth = bitmap.dest_right - bitmap.dest_left;
-        const updateHeight = bitmap.dest_bottom - bitmap.dest_top;
+        // Get the bitmap dimensions
+        const width = bitmap.width;
+        const height = bitmap.height;
 
-        let rgbaData;
-        if (bitmap.bpp === 32) {
-            // Create array for the bitmap
-            rgbaData = new Uint8ClampedArray(srcWidth * srcHeight * 4);
+        console.log('Bitmap dimensions:', { width, height });
+        console.log('Bitmap buffer length:', bitmap.buffer.length);
+        console.log('Bitmap buffer:', bitmap.buffer);
+
+        // Create array for the bitmap (4 channels: R,G,B,A)
+        const rgbaData = new Uint8ClampedArray(width * height * 4);
+        
+        // Convert decimal color values to RGBA
+        const data = bitmap.buffer;
+        for (let i = 0; i < data.length; i++) {
+            const pixelValue = parseInt(data[i]);
+            const destIndex = i * 4;
             
-            // Copy and convert data from BGRA to RGBA format
-            const data = new Uint8Array(bitmap.data);
-            for (let i = 0; i < data.length; i += 4) {
-                const destIndex = i;
-                // Verify source index is within bounds
-                if (i + 3 >= data.length) {
-                    continue;
-                }
-                
-                // Convert from BGRA to RGBA format
-                rgbaData[destIndex] = data[i];     // R (from B)
-                rgbaData[destIndex + 1] = data[i + 1]; // G (same position)
-                rgbaData[destIndex + 2] = data[i + 2];     // B (from R)
-                rgbaData[destIndex + 3] = data[i + 3]; // A (same position)
-            }
-        } else {
-            console.error(`Unsupported bits per pixel: ${bitmap.bpp}`);
-            return;
+            // Extract RGB components from decimal value
+            const r = (pixelValue >> 16) & 255;  // Red is in bits 16-23
+            const g = (pixelValue >> 8) & 255;   // Green is in bits 8-15
+            const b = pixelValue & 255;          // Blue is in bits 0-7
+            
+            rgbaData[destIndex] = r;     // R
+            rgbaData[destIndex + 1] = g; // G
+            rgbaData[destIndex + 2] = b; // B
+            rgbaData[destIndex + 3] = 255; // A (fully opaque)
         }
 
         // Create ImageData for the bitmap
-        const imageData = new ImageData(rgbaData, srcWidth, srcHeight);
+        const imageData = new ImageData(rgbaData, width, height);
 
         // Create and draw the bitmap
         createImageBitmap(imageData).then(imageBitmap => {
-            // Clear the destination area first
-            this.ctx.clearRect(
-                bitmap.dest_left, bitmap.dest_top,
-                updateWidth, updateHeight
-            );
+            // Clear the entire canvas
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
             
-            // Draw the new bitmap
-            this.ctx.drawImage(
-                imageBitmap,
-                /* dx: */ bitmap.dest_left,
-                /* dy: */ bitmap.dest_top,
-                /* dWidth: */ updateWidth,
-                /* dHeight: */ updateHeight
-            );
+            // Draw the new bitmap (full screen)
+            this.ctx.drawImage(imageBitmap, 0, 0, width, height);
         }).catch(error => {
             console.error('Error creating image bitmap:', error);
         });

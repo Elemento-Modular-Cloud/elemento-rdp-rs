@@ -14,6 +14,7 @@
             padding: 5px;
         }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
 </head>
 <body>
     <div class="connection-form">
@@ -21,7 +22,7 @@
         <button onclick="disconnect()">Disconnect</button>
     </div>
     
-    <canvas id="rdp-canvas" width="1024" height="768"></canvas>
+    <canvas id="rdp-canvas" width="1920" height="1080"></canvas>
     
     <script src="rdp-client.js"></script>
     <script>
