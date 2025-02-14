@@ -581,6 +581,17 @@ fn main() {
     // Handle bitmap events and forward to WebSocket in a separate thread
     let bitmap_handler = thread::spawn(move || {
         while let Ok(bitmap) = bitmap_receiver.recv() {
+            println!("Received bitmap event");
+            println!("bitmap.bpp: {}", bitmap.bpp);
+            println!("bitmap.width: {}", bitmap.width);
+            println!("bitmap.height: {}", bitmap.height);
+            println!("bitmap.dest_left: {}", bitmap.dest_left);
+            println!("bitmap.dest_top: {}", bitmap.dest_top);
+            println!("bitmap.dest_right: {}", bitmap.dest_right);
+            println!("bitmap.dest_bottom: {}", bitmap.dest_bottom);
+            println!("bitmap.is_compress: {}", bitmap.is_compress);
+            println!("bitmap.data: {}", bitmap.data.len());
+            
             let ws_bitmap = WsBitmapEvent {
                 bpp: bitmap.bpp,
                 width: bitmap.width,
@@ -595,7 +606,7 @@ fn main() {
 
             let message = serde_json::to_string(&ws_bitmap).unwrap();
             
-            println!("Sending bitmap frame N: {}", count);
+            // println!("Sending bitmap frame N: {}", count);
             count += 1;
 
             // Send to all connected WebSocket clients
@@ -611,15 +622,26 @@ fn main() {
         let rdp_client = Arc::clone(&rdp_client_mutex);
         let ws_clients = Arc::clone(&ws_clients_clone);
         
+        // Log the client IP address when connecting
+        let client_addr = request.stream.peer_addr().map_or("Unknown".to_string(), |addr| addr.to_string());
+        println!("New WebSocket client connecting from: {}", client_addr);
+        
         thread::spawn(move || {
             if let Ok(client) = request.accept() {
+                println!("WebSocket client connected from: {}", client_addr);
                 let (receiver, sender) = client.split().unwrap();
                 
                 // Add sender to clients list
-                ws_clients.lock().unwrap().push(sender);
+                {
+                    let mut clients = ws_clients.lock().unwrap();
+                    clients.push(sender);
+                    println!("Total connected clients: {}", clients.len());
+                }
                 
                 // Handle incoming messages
-                handle_websocket(receiver, rdp_client);
+                handle_websocket(receiver, rdp_client, client_addr);
+            } else {
+                println!("WebSocket client failed to connect from: {}", client_addr);
             }
         });
     }
@@ -629,10 +651,11 @@ fn main() {
     rdp_thread.join().unwrap();
 }
 
-// Helper function to handle WebSocket connections
+// Update handle_websocket signature to include client_addr
 fn handle_websocket(
     mut receiver: Reader<TcpStream>,
-    rdp_client: Arc<Mutex<RdpClient<TcpStream>>>
+    rdp_client: Arc<Mutex<RdpClient<TcpStream>>>,
+    client_addr: String
 ) {
     for message in receiver.incoming_messages() {
         match message {
@@ -649,7 +672,7 @@ fn handle_websocket(
                                 button: pointer_button,
                                 down
                             })) {
-                                println!("Error sending mouse event: {:?}", e);
+                                println!("Error sending mouse event from {}: {:?}", client_addr, e);
                             }
                         }
                         WsInputEvent::Keyboard { code, down } => {
@@ -657,13 +680,20 @@ fn handle_websocket(
                                 code,
                                 down
                             })) {
-                                println!("Error sending keyboard event: {:?}", e);
+                                println!("Error sending keyboard event from {}: {:?}", client_addr, e);
                             }
                         }
                     }
                 }
             }
-            Ok(OwnedMessage::Close(_)) | Err(_) => break,
+            Ok(OwnedMessage::Close(_)) => {
+                println!("WebSocket client disconnected: {}", client_addr);
+                break;
+            }
+            Err(e) => {
+                println!("WebSocket error for client {}: {:?}", client_addr, e);
+                break;
+            }
             _ => {}
         }
     }
