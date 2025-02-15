@@ -109,7 +109,9 @@ pub enum PointerButton {
     /// Right mouse button
     Right = 2,
     /// Wheel mouse button
-    Middle = 3
+    Middle = 3,
+    /// Mouse wheel rotation
+    Wheel = 4  // New variant for wheel events
 }
 
 /// A mouse pointer event
@@ -121,7 +123,9 @@ pub struct PointerEvent {
     /// Which button is pressed
     pub button: PointerButton,
     /// true if it's a down press action
-    pub down: bool
+    pub down: bool,
+    /// wheel delta (only used when button is PointerButton::Wheel)
+    pub wheel_delta: Option<i16>,
 }
 
 /// Keyboard event

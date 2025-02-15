@@ -9,9 +9,9 @@ extern crate rdp;
 extern crate hex;
 extern crate clap;
 extern crate hmac;
+extern crate websocket;
 extern crate serde;
 extern crate serde_json;
-extern crate websocket;
 
 // use minifb::{Key, Window, WindowOptions, MouseMode, MouseButton, KeyRepeat};
 use std::net::{SocketAddr, TcpStream};
@@ -433,29 +433,49 @@ fn handle_websocket(
     for message in receiver.incoming_messages() {
         match message {
             Ok(OwnedMessage::Text(text)) => {
+                println!("Received message: {}", text); // Debug logging
                 if let Ok(event) = serde_json::from_str::<WsInputEvent>(&text) {
                     let mut client = rdp_client.lock().unwrap();
                     match event {
                         WsInputEvent::Mouse { x, y, button, down } => {
-                            // Log mouse event details
-                            println!("[{}] Mouse event: pos=({}, {}), button={}, {}", 
-                                client_addr, x, y, button, 
-                                if down { "pressed" } else { "released" }
-                            );
-                            
-                            let pointer_button = PointerButton::try_from(button).unwrap_or(PointerButton::None);
-                            if let Err(e) = client.write(RdpEvent::Pointer(PointerEvent {
-                                x: x as u16,
-                                y: y as u16,
-                                button: pointer_button,
-                                down
-                            })) {
-                                println!("Error sending mouse event from {}: {:?}", client_addr, e);
+                            // Only process mouse events with button and down state
+                            if let (Some(button), Some(down)) = (button, down) {
+                                println!("[{}] Mouse event: pos=({}, {}), button={}, {}", 
+                                    client_addr, x, y, button, 
+                                    if down { "pressed" } else { "released" }
+                                );
+                                
+                                let pointer_button = match button {
+                                    0 => PointerButton::Left,
+                                    1 => PointerButton::Middle,
+                                    2 => PointerButton::Right,
+                                    _ => PointerButton::None,
+                                };
+
+                                if let Err(e) = client.write(RdpEvent::Pointer(PointerEvent {
+                                    x: x as u16,
+                                    y: y as u16,
+                                    button: pointer_button,
+                                    down,
+                                    wheel_delta: None,
+                                })) {
+                                    println!("Error sending mouse event from {}: {:?}", client_addr, e);
+                                }
+                            } else {
+                                // Handle mouse move events (when button and down are null)
+                                if let Err(e) = client.write(RdpEvent::Pointer(PointerEvent {
+                                    x: x as u16,
+                                    y: y as u16,
+                                    button: PointerButton::None,
+                                    down: false,
+                                    wheel_delta: None,
+                                })) {
+                                    println!("Error sending mouse move event from {}: {:?}", client_addr, e);
+                                }
                             }
                         }
                         WsInputEvent::Keyboard { code, down } => {
-                            // Log keyboard event details
-                            println!("[{}] Keyboard event: key=0x{:04x} ({})", 
+                            println!("[{}] Keyboard event: scancode=0x{:04x} ({})", 
                                 client_addr, code,
                                 if down { "pressed" } else { "released" }
                             );
@@ -467,7 +487,24 @@ fn handle_websocket(
                                 println!("Error sending keyboard event from {}: {:?}", client_addr, e);
                             }
                         }
+                        WsInputEvent::Wheel { x, y, delta } => {
+                            println!("[{}] Wheel event: delta={}, pos=({}, {})", 
+                                client_addr, delta, x, y
+                            );
+                            
+                            if let Err(e) = client.write(RdpEvent::Pointer(PointerEvent {
+                                x: x as u16,
+                                y: y as u16,
+                                button: PointerButton::Wheel,
+                                down: true,
+                                wheel_delta: Some(delta as i16),
+                            })) {
+                                println!("Error sending wheel event from {}: {:?}", client_addr, e);
+                            }
+                        }
                     }
+                } else {
+                    println!("Failed to parse message: {}", text);
                 }
             }
             Ok(OwnedMessage::Close(_)) => {
@@ -498,19 +535,12 @@ struct WsBitmapEvent {
 }
 
 #[derive(Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all = "lowercase")]
 enum WsInputEvent {
-    Mouse {
-        x: i32,
-        y: i32,
-        #[serde(deserialize_with = "pointer_button_serde::deserialize")]
-        button: u8,
-        down: bool,
-    },
-    Keyboard {
-        code: u16,
-        down: bool,
-    },
+    Mouse { x: i32, y: i32, button: Option<u8>, #[serde(rename = "is_pressed")] down: Option<bool> },
+    #[serde(rename = "scancode")]
+    Keyboard { #[serde(rename = "scancode")] code: u16, #[serde(rename = "is_pressed")] down: bool },
+    Wheel { x: i32, y: i32, delta: i32 },
 }
 
 // Custom serialization for PointerButton
