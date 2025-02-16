@@ -365,7 +365,6 @@ fn main() {
     let sync_clone = Arc::clone(&sync);
     let ws_sender = thread::spawn(move || {
         while sync_clone.load(Ordering::Relaxed) {
-            // Send buffer update every 33ms (approximately 30fps)
             thread::sleep(std::time::Duration::from_millis(15));
 
             let buffer_data = {
@@ -376,18 +375,24 @@ fn main() {
                 buf.clone()
             };
 
-            let ws_frame = WsBufferUpdate {
-                width: width as u16,
-                height: height as u16,
-                buffer: buffer_data,
-            };
-
-            let message = serde_json::to_string(&ws_frame).unwrap();
+            // Create a binary message with minimal header
+            let mut message = Vec::with_capacity(8 + buffer_data.len() * 4);
+            message.extend_from_slice(&(width as u32).to_le_bytes());
+            message.extend_from_slice(&(height as u32).to_le_bytes());
             
-            // Send to all connected WebSocket clients
+            // Convert u32 buffer to bytes
+            unsafe {
+                let bytes = std::slice::from_raw_parts(
+                    buffer_data.as_ptr() as *const u8,
+                    buffer_data.len() * 4
+                );
+                message.extend_from_slice(bytes);
+            }
+
+            // Send binary message to all connected clients
             let mut clients = ws_clients.lock().unwrap();
             clients.retain_mut(|sender| {
-                sender.send_message(&Message::text(message.clone())).is_ok()
+                sender.send_message(&Message::binary(message.clone())).is_ok()
             });
         }
     });

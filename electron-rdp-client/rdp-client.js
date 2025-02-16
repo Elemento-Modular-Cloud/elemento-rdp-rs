@@ -78,11 +78,17 @@ class RDPClient {
                 };
 
                 this.ws.onmessage = (event) => {
-                    try {
-                        const message = JSON.parse(event.data);
-                        this.handleBitmap(message);
-                    } catch (error) {
-                        console.error('Error parsing WebSocket message:', error);
+                    if (event.data instanceof Blob) {
+                        event.data.arrayBuffer().then(buffer => {
+                            this.handleBitmap(buffer);
+                        });
+                    } else {
+                        try {
+                            const message = JSON.parse(event.data);
+                            this.handleBitmap(message);
+                        } catch (error) {
+                            console.error('Error parsing WebSocket message:', error);
+                        }
                     }
                 };
 
@@ -111,16 +117,12 @@ class RDPClient {
         }
     }
 
-    handleBitmap(bitmap) {
-        // Verify that we have valid bitmap data
-        if (!bitmap.buffer || bitmap.buffer.length === 0) {
-            console.error('Invalid or empty bitmap data received');
-            return;
-        }
-
-        const width = bitmap.width;
-        const height = bitmap.height;
-
+    handleBitmap(data) {
+        // Create a DataView to read the header
+        const view = new DataView(data);
+        const width = view.getUint32(0, true);   // true for little-endian
+        const height = view.getUint32(4, true);
+        
         // Update offscreen canvas dimensions if needed
         if (this.offscreenCanvas.width !== width || this.offscreenCanvas.height !== height) {
             this.offscreenCanvas.width = width;
@@ -131,22 +133,23 @@ class RDPClient {
         if (!this.imageData || this.imageData.width !== width || this.imageData.height !== height) {
             this.imageData = new ImageData(width, height);
         }
+
+        // Get the pixel data as Uint32Array (skipping 8-byte header)
+        const pixels = new Uint32Array(data, 8);
         
+        // Convert BGRA to RGBA
         const rgbaData = this.imageData.data;
-        const data = bitmap.buffer;
-        
-        // Use a single loop with direct array access
         let destIndex = 0;
-        for (let i = 0; i < data.length; i++) {
-            const pixelValue = data[i];
-            rgbaData[destIndex] = (pixelValue >> 16) & 255;     // R
-            rgbaData[destIndex + 1] = (pixelValue >> 8) & 255;  // G
-            rgbaData[destIndex + 2] = pixelValue & 255;         // B
-            rgbaData[destIndex + 3] = 255;                      // A
+        for (let i = 0; i < pixels.length; i++) {
+            const pixel = pixels[i];
+            rgbaData[destIndex] = (pixel >> 16) & 255;     // R
+            rgbaData[destIndex + 1] = (pixel >> 8) & 255;  // G
+            rgbaData[destIndex + 2] = pixel & 255;         // B
+            rgbaData[destIndex + 3] = 255;                 // A
             destIndex += 4;
         }
 
-        // Use OffscreenCanvas for bitmap creation and drawing
+        // Draw to canvas
         this.offscreenCtx.putImageData(this.imageData, 0, 0);
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.ctx.drawImage(this.offscreenCanvas, 0, 0, width, height);
