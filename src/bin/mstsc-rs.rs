@@ -12,6 +12,7 @@ extern crate hmac;
 extern crate websocket;
 extern crate serde;
 extern crate serde_json;
+extern crate memmap2;
 
 // use minifb::{Key, Window, WindowOptions, MouseMode, MouseButton, KeyRepeat};
 use std::net::{SocketAddr, TcpStream};
@@ -44,10 +45,13 @@ use clap::{Arg, App, ArgMatches};
 use rdp::core::gcc::KeyboardLayout;
 use std::sync::mpsc::{Sender, Receiver};
 use serde::{Serialize, Deserialize};
+use serde_json::json;
 use websocket::{Message, OwnedMessage, sync::Server};
 use websocket::sync::{Writer, Reader};
 use std::intrinsics::copy_nonoverlapping;
-// use websocket::sync::Client;
+use memmap2::{MmapMut, MmapOptions};
+use std::fs::OpenOptions;
+use std::path::PathBuf;
 
 const APPLICATION_NAME: &str = "mstsc-rs";
 
@@ -192,13 +196,50 @@ fn fast_bitmap_transfer(buffer: &mut Vec<u32>, width: usize, bitmap: RdpBitmapEv
     Ok(())
 }
 
+fn get_shared_memory_path() -> PathBuf {
+    if cfg!(windows) {
+        PathBuf::from("\\\\.\\shm\\mstsc-rs-buffer")
+    } else {
+        PathBuf::from("/tmp/mstsc-rs-buffer")
+    }
+}
+
+fn setup_shared_memory(width: usize, height: usize) -> Result<MmapMut, Box<dyn std::error::Error>> {
+    let path = get_shared_memory_path();
+    
+    // Create or truncate the file
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(&path)?;
+    
+    // Set the file size to accommodate header and pixel data
+    // Header: width (4 bytes) + height (4 bytes) + dirty flag (4 bytes)
+    let total_size = 12 + (width * height * 4);
+    file.set_len(total_size as u64)?;
+    
+    // Create the memory mapping
+    let mut mmap = unsafe { MmapOptions::new().map_mut(&file)? };
+    
+    // Initialize header
+    let header = &mut mmap[0..12];
+    header[0..4].copy_from_slice(&(width as u32).to_le_bytes());
+    header[4..8].copy_from_slice(&(height as u32).to_le_bytes());
+    header[8..12].copy_from_slice(&0u32.to_le_bytes()); // dirty flag
+    
+    Ok(mmap)
+}
+
 fn bitmap_loop<S: Read + Write>(
     width: usize,
     height: usize,
     rdp_client: Arc<Mutex<RdpClient<S>>>,
     sync: Arc<AtomicBool>,
     bitmap_receiver: Receiver<RdpBitmapEvent>,
-    buffer: Arc<Mutex<Vec<u32>>>) -> RdpResult<()> {
+    buffer: Arc<Mutex<Vec<u32>>>,
+    shared_memory: Arc<Mutex<MmapMut>>,
+    ws_clients: Arc<Mutex<Vec<Writer<TcpStream>>>>) -> RdpResult<()> {
 
     // Initialize the shared buffer if empty
     {
@@ -216,8 +257,31 @@ fn bitmap_loop<S: Read + Write>(
         while now.elapsed().as_micros() < 5000 {
             match bitmap_receiver.try_recv() {
                 Ok(bitmap) => {
+                    // Update the main buffer
                     let mut buf = buffer.lock().unwrap();
                     fast_bitmap_transfer(&mut buf, width, bitmap)?;
+
+                    // Update shared memory
+                    let mut mmap = shared_memory.lock().unwrap();
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            buf.as_ptr() as *const u8,
+                            mmap[12..].as_mut_ptr(),
+                            buf.len() * 4
+                        );
+                    }
+                    
+                    // Set dirty flag
+                    mmap[8..12].copy_from_slice(&1u32.to_le_bytes());
+
+                    // Notify WebSocket clients
+                    let mut clients = ws_clients.lock().unwrap();
+                    clients.retain_mut(|sender| {
+                        sender.send_message(&Message::text(json!({
+                            "type": "frame_ready",
+                            "path": get_shared_memory_path().to_string_lossy()
+                        }).to_string())).is_ok()
+                    });
                 },
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => {
@@ -323,13 +387,23 @@ fn main() {
     let rdp_client_mutex = Arc::new(Mutex::new(rdp_from_args(&matches, tcp).unwrap()));
     
     // Keep track of connected WebSocket clients
-    let ws_clients: Arc<Mutex<Vec<Writer<TcpStream>>>> = Arc::new(Mutex::new(Vec::new()));
-    let ws_clients_clone = ws_clients.clone();
-
+    let ws_clients = Arc::new(Mutex::new(Vec::new()));
+    
     // Create channels and setup RDP client as before
     let (bitmap_sender, bitmap_receiver) = mpsc::channel();
     let sync = Arc::new(AtomicBool::new(true));
     let buffer = Arc::new(Mutex::new(Vec::new()));
+
+    // Create necessary Arc clones before moving into threads
+    let rdp_client_for_ws = Arc::clone(&rdp_client_mutex);
+    let rdp_client_for_bitmap = Arc::clone(&rdp_client_mutex);
+    let ws_clients_for_bitmap = Arc::clone(&ws_clients);
+    let ws_clients_for_sender = Arc::clone(&ws_clients);
+    let ws_clients_for_main = Arc::clone(&ws_clients);
+    let sync_for_bitmap = Arc::clone(&sync);
+    let sync_for_ws = Arc::clone(&sync);
+    let buffer_for_bitmap = Arc::clone(&buffer);
+    let buffer_for_ws = Arc::clone(&buffer);
 
     // Launch RDP thread
     let rdp_thread = launch_rdp_thread(
@@ -343,32 +417,30 @@ fn main() {
     let server = Server::bind("127.0.0.1:9000").unwrap();
     println!("WebSocket server listening on port 9000");
 
-    // Create a clone of the buffer for the bitmap loop
-    let buffer_clone = Arc::clone(&buffer);
-    let sync_clone = Arc::clone(&sync);
-    let rdp_client_clone = Arc::clone(&rdp_client_mutex);
-
-    // Launch bitmap processing in a separate thread
-    let bitmap_handler = thread::spawn(move || {
+    // Setup shared memory
+    let shared_memory = Arc::new(Mutex::new(
+        setup_shared_memory(width, height).expect("Failed to setup shared memory")
+    ));
+    
+    let bitmap_loop_handle = thread::spawn(move || {
         bitmap_loop(
             width,
             height,
-            rdp_client_clone,
-            sync_clone,
+            rdp_client_for_bitmap,
+            sync_for_bitmap,
             bitmap_receiver,
-            buffer_clone,
+            buffer_for_bitmap,
+            Arc::clone(&shared_memory),
+            ws_clients_for_bitmap
         ).unwrap();
     });
 
-    // Create a thread to periodically send buffer updates to WebSocket clients
-    let buffer_clone = Arc::clone(&buffer);
-    let sync_clone = Arc::clone(&sync);
     let ws_sender = thread::spawn(move || {
-        while sync_clone.load(Ordering::Relaxed) {
+        while sync_for_ws.load(Ordering::Relaxed) {
             thread::sleep(std::time::Duration::from_millis(15));
 
             let buffer_data = {
-                let buf = buffer_clone.lock().unwrap();
+                let buf = buffer_for_ws.lock().unwrap();
                 if buf.is_empty() {
                     continue;
                 }
@@ -390,7 +462,7 @@ fn main() {
             }
 
             // Send binary message to all connected clients
-            let mut clients = ws_clients.lock().unwrap();
+            let mut clients = ws_clients_for_sender.lock().unwrap();
             clients.retain_mut(|sender| {
                 sender.send_message(&Message::binary(message.clone())).is_ok()
             });
@@ -399,8 +471,8 @@ fn main() {
 
     // Accept WebSocket connections in the main thread
     for request in server.filter_map(Result::ok) {
-        let rdp_client = Arc::clone(&rdp_client_mutex);
-        let ws_clients = Arc::clone(&ws_clients_clone);
+        let rdp_client = Arc::clone(&rdp_client_for_ws);
+        let ws_clients = Arc::clone(&ws_clients_for_main);
         
         let client_addr = request.stream.peer_addr().map_or("Unknown".to_string(), |addr| addr.to_string());
         println!("New WebSocket client connecting from: {}", client_addr);
@@ -424,7 +496,7 @@ fn main() {
     }
 
     // Wait for threads to complete
-    bitmap_handler.join().unwrap();
+    bitmap_loop_handle.join().unwrap();
     ws_sender.join().unwrap();
     rdp_thread.join().unwrap();
 }

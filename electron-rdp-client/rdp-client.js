@@ -1,4 +1,5 @@
 const { spawn } = require('child_process');
+const fs = require('fs');
 
 class RDPClient {
     constructor(canvasId) {
@@ -20,6 +21,97 @@ class RDPClient {
         document.addEventListener('keydown', this.handleKeyDown.bind(this));
         document.addEventListener('keyup', this.handleKeyUp.bind(this));
         this.canvas.addEventListener('wheel', this.handleWheel.bind(this));
+        
+        this.sharedMemoryFd = null;
+        this.sharedMemoryBuffer = null;
+        this.sharedMemoryView = null;
+    }
+
+    async setupSharedMemory(path) {
+        console.log('Setting up shared memory:', path);
+        try {
+            // Open the shared memory file
+            this.sharedMemoryFd = await fs.promises.open(path, 'r+');
+            
+            // Create a shared buffer
+            const stats = await this.sharedMemoryFd.stat();
+            this.sharedMemoryBuffer = Buffer.alloc(stats.size);
+            
+            // Create a view for easy access
+            this.sharedMemoryView = new DataView(this.sharedMemoryBuffer.buffer);
+        } catch (error) {
+            console.error('Failed to setup shared memory:', error);
+            throw error;
+        }
+    }
+    
+    async checkForFrameUpdate() {
+        if (!this.sharedMemoryFd) return false;
+        
+        // Read the header
+        await this.sharedMemoryFd.read(this.sharedMemoryBuffer, 0, 12, 0);
+        
+        const width = this.sharedMemoryView.getUint32(0, true);
+        const height = this.sharedMemoryView.getUint32(4, true);
+        const dirty = this.sharedMemoryView.getUint32(8, true);
+        
+        if (dirty === 1) {
+            // Read the frame data
+            await this.sharedMemoryFd.read(
+                this.sharedMemoryBuffer,
+                12,
+                width * height * 4,
+                12
+            );
+            
+            // Clear dirty flag
+            const clearBuffer = Buffer.alloc(4);
+            new DataView(clearBuffer.buffer).setUint32(0, 0, true);
+            await this.sharedMemoryFd.write(clearBuffer, 0, 4, 8);
+            
+            // Process the frame
+            this.handleSharedMemoryFrame(width, height);
+            return true;
+        }
+        
+        return false;
+    }
+    
+    handleSharedMemoryFrame(width, height) {
+        // Update canvas dimensions if needed
+        if (this.offscreenCanvas.width !== width || this.offscreenCanvas.height !== height) {
+            this.offscreenCanvas.width = width;
+            this.offscreenCanvas.height = height;
+        }
+        
+        // Create ImageData only once and reuse the buffer
+        if (!this.imageData || this.imageData.width !== width || this.imageData.height !== height) {
+            this.imageData = new ImageData(width, height);
+        }
+        
+        // Get the pixel data (skip 12-byte header)
+        const pixels = new Uint32Array(
+            this.sharedMemoryBuffer.buffer,
+            12,
+            width * height
+        );
+        
+        // Convert BGRA to RGBA
+        const rgbaData = this.imageData.data;
+        let destIndex = 0;
+        for (let i = 0; i < pixels.length; i++) {
+            const pixel = pixels[i];
+            rgbaData[destIndex] = (pixel >> 16) & 255;     // R
+            rgbaData[destIndex + 1] = (pixel >> 8) & 255;  // G
+            rgbaData[destIndex + 2] = pixel & 255;         // B
+            rgbaData[destIndex + 3] = 255;                 // A
+            destIndex += 4;
+        }
+        
+        // Draw to canvas
+        this.offscreenCtx.putImageData(this.imageData, 0, 0);
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.drawImage(this.offscreenCanvas, 0, 0, width, height);
     }
 
     connect(credentials) {
@@ -77,14 +169,18 @@ class RDPClient {
                     this.connected = true;
                 };
 
-                this.ws.onmessage = (event) => {
-                    if (event.data instanceof Blob) {
-                        event.data.arrayBuffer().then(buffer => {
-                            this.handleBitmap(buffer);
-                        });
+                this.ws.onmessage = async (event) => {
+                    const message = JSON.parse(event.data);
+
+                    console.log('Received message:', message);
+                    
+                    if (message.type === 'frame_ready') {
+                        if (!this.sharedMemoryFd) {
+                            await this.setupSharedMemory(message.path);
+                        }
+                        await this.checkForFrameUpdate();
                     } else {
                         try {
-                            const message = JSON.parse(event.data);
                             this.handleBitmap(message);
                         } catch (error) {
                             console.error('Error parsing WebSocket message:', error);
@@ -290,6 +386,13 @@ class RDPClient {
             this.ws.close();
         }
         this.connected = false;
+        
+        if (this.sharedMemoryFd) {
+            this.sharedMemoryFd.close().catch(console.error);
+            this.sharedMemoryFd = null;
+            this.sharedMemoryBuffer = null;
+            this.sharedMemoryView = null;
+        }
     }
 
     keyCodeToScancode(code) {
