@@ -228,7 +228,7 @@ fn bitmap_loop<S: Read + Write>(
         }
 
         // Add a small sleep to prevent busy-waiting
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
 
     sync.store(false, Ordering::Relaxed);
@@ -366,7 +366,7 @@ fn main() {
     let ws_sender = thread::spawn(move || {
         while sync_clone.load(Ordering::Relaxed) {
             // Send buffer update every 33ms (approximately 30fps)
-            thread::sleep(std::time::Duration::from_millis(33));
+            thread::sleep(std::time::Duration::from_millis(15));
 
             let buffer_data = {
                 let buf = buffer_clone.lock().unwrap();

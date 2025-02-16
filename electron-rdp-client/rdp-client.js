@@ -248,19 +248,35 @@ class RDPClient {
         
         event.preventDefault(); // Prevent page scrolling
         
-        const rect = this.canvas.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
+        // Use Page Up/Down for larger steps (with Shift), Arrow Up/Down for smaller steps
+        const scancode = event.shiftKey
+            ? (event.deltaY > 0 ? 0xE051 : 0xE049) // Page Down : Page Up
+            : (event.deltaY > 0 ? 0xE050 : 0xE048); // Arrow Down : Arrow Up
         
-        const message = {
-            type: 'wheel',
-            x: Math.floor(x),
-            y: Math.floor(y),
-            delta: Math.sign(event.deltaY) // 1 for scroll down, -1 for scroll up
+        // Simulate key press
+        const keyDownMessage = {
+            type: 'scancode',
+            scancode: scancode,
+            is_pressed: true
         };
+        this.ws.send(JSON.stringify(keyDownMessage));
         
-        if (Math.random() < 0.01) console.log('Wheel:', message); // Log only 1% of wheel events
-        this.ws.send(JSON.stringify(message));
+        // Simulate key release after a short delay
+        setTimeout(() => {
+            const keyUpMessage = {
+                type: 'scancode',
+                scancode: scancode,
+                is_pressed: false
+            };
+            this.ws.send(JSON.stringify(keyUpMessage));
+        }, 50); // 50ms delay between press and release
+        
+        if (Math.random() < 0.01) {
+            const keyName = scancode === 0xE051 ? 'PageDown' : 
+                           scancode === 0xE049 ? 'PageUp' :
+                           scancode === 0xE050 ? 'ArrowDown' : 'ArrowUp';
+            console.log('Wheel emulated as:', keyName);
+        }
     }
 
     disconnect() {
@@ -335,6 +351,8 @@ class RDPClient {
             'F15': 0x0066,
 
             // Special keys
+            'MetaLeft': 0xE05B,    // Left Windows key
+            'MetaRight': 0xE05C,   // Right Windows key
             'Escape': 0x0001,
             'Minus': 0x000C,
             'Equal': 0x000D,
@@ -391,8 +409,6 @@ class RDPClient {
             'PageDown': 0xE051,
             'Insert': 0xE052,
             'Delete': 0xE053,
-            'MetaLeft': 0xE05B,
-            'MetaRight': 0xE05C,
             'ContextMenu': 0xE05D
         };
 
