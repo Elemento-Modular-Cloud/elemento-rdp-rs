@@ -4,6 +4,9 @@ class RDPClient {
     constructor(canvasId) {
         this.canvas = document.getElementById(canvasId);
         this.ctx = this.canvas.getContext('2d');
+        // Create OffscreenCanvas with same dimensions
+        this.offscreenCanvas = new OffscreenCanvas(this.canvas.width, this.canvas.height);
+        this.offscreenCtx = this.offscreenCanvas.getContext('2d', { alpha: false });
         this.ws = null;
         this.connected = false;
         this.lastFrameTime = 0;  // Add this line to track last frame time
@@ -115,43 +118,38 @@ class RDPClient {
             return;
         }
 
-        // Get the bitmap dimensions
         const width = bitmap.width;
         const height = bitmap.height;
 
-        // Create array for the bitmap (4 channels: R,G,B,A)
-        const rgbaData = new Uint8ClampedArray(width * height * 4);
-        
-        // Convert decimal color values to RGBA
-        const data = bitmap.buffer;
-        for (let i = 0; i < data.length; i++) {
-            const pixelValue = parseInt(data[i]);
-            const destIndex = i * 4;
-            
-            // Extract RGB components from decimal value
-            const r = (pixelValue >> 16) & 255;  // Red is in bits 16-23
-            const g = (pixelValue >> 8) & 255;   // Green is in bits 8-15
-            const b = pixelValue & 255;          // Blue is in bits 0-7
-            
-            rgbaData[destIndex] = r;     // R
-            rgbaData[destIndex + 1] = g; // G
-            rgbaData[destIndex + 2] = b; // B
-            rgbaData[destIndex + 3] = 255; // A (fully opaque)
+        // Update offscreen canvas dimensions if needed
+        if (this.offscreenCanvas.width !== width || this.offscreenCanvas.height !== height) {
+            this.offscreenCanvas.width = width;
+            this.offscreenCanvas.height = height;
         }
 
-        // Create ImageData for the bitmap
-        const imageData = new ImageData(rgbaData, width, height);
+        // Create ImageData only once and reuse the buffer
+        if (!this.imageData || this.imageData.width !== width || this.imageData.height !== height) {
+            this.imageData = new ImageData(width, height);
+        }
+        
+        const rgbaData = this.imageData.data;
+        const data = bitmap.buffer;
+        
+        // Use a single loop with direct array access
+        let destIndex = 0;
+        for (let i = 0; i < data.length; i++) {
+            const pixelValue = data[i];
+            rgbaData[destIndex] = (pixelValue >> 16) & 255;     // R
+            rgbaData[destIndex + 1] = (pixelValue >> 8) & 255;  // G
+            rgbaData[destIndex + 2] = pixelValue & 255;         // B
+            rgbaData[destIndex + 3] = 255;                      // A
+            destIndex += 4;
+        }
 
-        // Create and draw the bitmap
-        createImageBitmap(imageData).then(imageBitmap => {
-            // Clear the entire canvas
-            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-            
-            // Draw the new bitmap (full screen)
-            this.ctx.drawImage(imageBitmap, 0, 0, width, height);
-        }).catch(error => {
-            console.error('Error creating image bitmap:', error);
-        });
+        // Use OffscreenCanvas for bitmap creation and drawing
+        this.offscreenCtx.putImageData(this.imageData, 0, 0);
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.drawImage(this.offscreenCanvas, 0, 0, width, height);
     }
 
     handleMouseDown(event) {
