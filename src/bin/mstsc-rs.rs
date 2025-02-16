@@ -4,6 +4,7 @@ extern crate winapi;
 extern crate libc;
 #[cfg(target_os = "macos")]
 extern crate libc;
+
 extern crate minifb;
 extern crate rdp;
 extern crate hex;
@@ -40,7 +41,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{JoinHandle};
 use std::sync::atomic::{AtomicBool, Ordering};
 use rdp::model::error::{Error, RdpErrorKind, RdpError, RdpResult};
-use clap::{Arg, App, ArgMatches};
+use clap::{Command, Arg};
 use rdp::core::gcc::KeyboardLayout;
 use std::sync::mpsc::{Sender, Receiver};
 use serde::{Serialize, Deserialize};
@@ -48,8 +49,14 @@ use websocket::{Message, OwnedMessage, sync::Server};
 use websocket::sync::{Writer, Reader};
 use std::intrinsics::copy_nonoverlapping;
 // use websocket::sync::Client;
+// use certificate::X509Certificate;
 
 const APPLICATION_NAME: &str = "mstsc-rs";
+const REFRESH_RATE_hz: u128 = 60;
+const BUFFER_UPDATE_INTERVAL_us: u128 = 1_000_000 / REFRESH_RATE_hz;
+const THREAD_SLEEP_TIME_ms: u64 = 1;
+const BUFFER_SEND_INTERVAL_ms: u64 = 1000 / REFRESH_RATE_hz as u64;
+
 
 #[cfg(target_os = "macos")]
 fn wait_for_fd(fd: usize) -> bool {
@@ -73,7 +80,7 @@ pub unsafe fn transmute_vec<S, T>(mut vec: Vec<S>) -> Vec<T> {
 }
 
 /// Create a tcp stream from main args
-fn tcp_from_args(args: &ArgMatches) -> RdpResult<TcpStream> {
+fn tcp_from_args(args: &clap::ArgMatches) -> RdpResult<TcpStream> {
     let ip = args.value_of("target").expect("You need to provide a target argument");
     let port = args.value_of("port").unwrap_or_default();
 
@@ -90,7 +97,7 @@ fn tcp_from_args(args: &ArgMatches) -> RdpResult<TcpStream> {
 }
 
 /// Create rdp client from args
-fn rdp_from_args<S: Read + Write>(args: &ArgMatches, stream: S) -> RdpResult<RdpClient<S>> {
+fn rdp_from_args<S: Read + Write>(args: &clap::ArgMatches, stream: S) -> RdpResult<RdpClient<S>> {
 
     let width = args.value_of("width").unwrap_or_default().parse().map_err(|e| {
         Error::RdpError(RdpError::new(RdpErrorKind::UnexpectedType, &format!("Cannot parse the input width argument [{}]", e)))
@@ -213,7 +220,7 @@ fn bitmap_loop<S: Read + Write>(
         let now = Instant::now();
 
         // Process bitmap updates at ~30 Hz
-        while now.elapsed().as_micros() < 5000 {
+        while now.elapsed().as_micros() < BUFFER_UPDATE_INTERVAL_us {
             match bitmap_receiver.try_recv() {
                 Ok(bitmap) => {
                     let mut buf = buffer.lock().unwrap();
@@ -228,7 +235,7 @@ fn bitmap_loop<S: Read + Write>(
         }
 
         // Add a small sleep to prevent busy-waiting
-        std::thread::sleep(std::time::Duration::from_millis(1));
+        std::thread::sleep(std::time::Duration::from_millis(THREAD_SLEEP_TIME_ms));
     }
 
     sync.store(false, Ordering::Relaxed);
@@ -237,73 +244,73 @@ fn bitmap_loop<S: Read + Write>(
 }
 
 fn main() {
-    // Parsing argument
-    let matches = App::new(APPLICATION_NAME)
+    // Update argument parsing to use new clap syntax
+    let matches = Command::new(APPLICATION_NAME)
         .version("0.2.0")
         .author("Sylvain Peyrefitte <citronneur@gmail.com>, Gabriele Gaetano Fronze <gabriele.fronze@elemento.cloud>")
         .about("Secure Remote Desktop Client in RUST")
-        .arg(Arg::with_name("target")
-                 .long("target")
-                 .takes_value(true)
-                 .help("Target IP of the server"))
-        .arg(Arg::with_name("port")
-                 .long("port")
-                 .takes_value(true)
-                 .default_value("3389")
-                 .help("Destination Port"))
-        .arg(Arg::with_name("width")
-                 .long("width")
-                 .takes_value(true)
-                 .default_value("1600")
-                 .help("Screen width"))
-        .arg(Arg::with_name("height")
-                 .long("height")
-                 .takes_value(true)
-                 .default_value("1200")
-                 .help("Screen height"))
-        .arg(Arg::with_name("domain")
-                 .long("dom")
-                 .takes_value(true)
-                 .default_value("")
-                 .help("Windows domain"))
-        .arg(Arg::with_name("username")
-                 .long("user")
-                 .takes_value(true)
-                 .default_value("")
-                 .help("Username"))
-        .arg(Arg::with_name("password")
-                 .long("pass")
-                 .takes_value(true)
-                 .default_value("")
-                 .help("Password"))
-        .arg(Arg::with_name("hash")
-                 .long("hash")
-                 .takes_value(true)
-                 .help("NTLM Hash"))
-        .arg(Arg::with_name("admin")
-                 .long("admin")
-                 .help("Restricted admin mode"))
-        .arg(Arg::with_name("layout")
-                 .long("layout")
-                 .takes_value(true)
-                 .default_value("us")
-                 .help("Keyboard layout: us or fr"))
-        .arg(Arg::with_name("auto_logon")
-                 .long("auto")
-                 .help("AutoLogon mode in case of SSL nego"))
-        .arg(Arg::with_name("blank_creds")
-                 .long("blank")
-                 .help("Do not send credentials at the last CredSSP payload"))
-        .arg(Arg::with_name("check_certificate")
-                 .long("check")
-                 .help("Check the target SSL certificate"))
-        .arg(Arg::with_name("disable_nla")
-                 .long("ssl")
-                 .help("Disable Netwoek Level Authentication and only use SSL"))
-        .arg(Arg::with_name("name")
-                 .long("name")
-                 .default_value("mstsc-rs")
-                 .help("Name of the client send to the server"))
+        .arg(Arg::new("target")
+            .long("target")
+            .takes_value(true)
+            .help("Target IP of the server"))
+        .arg(Arg::new("port")
+            .long("port")
+            .takes_value(true)
+            .default_value("3389")
+            .help("Destination Port"))
+        .arg(Arg::new("width")
+            .long("width")
+            .takes_value(true)
+            .default_value("1600")
+            .help("Screen width"))
+        .arg(Arg::new("height")
+            .long("height")
+            .takes_value(true)
+            .default_value("1200")
+            .help("Screen height"))
+        .arg(Arg::new("domain")
+            .long("dom")
+            .takes_value(true)
+            .default_value("")
+            .help("Windows domain"))
+        .arg(Arg::new("username")
+            .long("user")
+            .takes_value(true)
+            .default_value("")
+            .help("Username"))
+        .arg(Arg::new("password")
+            .long("pass")
+            .takes_value(true)
+            .default_value("")
+            .help("Password"))
+        .arg(Arg::new("hash")
+            .long("hash")
+            .takes_value(true)
+            .help("NTLM Hash"))
+        .arg(Arg::new("admin")
+            .long("admin")
+            .help("Restricted admin mode"))
+        .arg(Arg::new("layout")
+            .long("layout")
+            .takes_value(true)
+            .default_value("us")
+            .help("Keyboard layout: us or fr"))
+        .arg(Arg::new("auto_logon")
+            .long("auto")
+            .help("AutoLogon mode in case of SSL nego"))
+        .arg(Arg::new("blank_creds")
+            .long("blank")
+            .help("Do not send credentials at the last CredSSP payload"))
+        .arg(Arg::new("check_certificate")
+            .long("check")
+            .help("Check the target SSL certificate"))
+        .arg(Arg::new("disable_nla")
+            .long("ssl")
+            .help("Disable Netwoek Level Authentication and only use SSL"))
+        .arg(Arg::new("name")
+            .long("name")
+            .default_value("mstsc-rs")
+            .help("Name of the client send to the server"))
         .get_matches();
 
     // Create a tcp stream from args
@@ -365,7 +372,7 @@ fn main() {
     let sync_clone = Arc::clone(&sync);
     let ws_sender = thread::spawn(move || {
         while sync_clone.load(Ordering::Relaxed) {
-            thread::sleep(std::time::Duration::from_millis(15));
+            thread::sleep(std::time::Duration::from_millis(BUFFER_SEND_INTERVAL_ms));
 
             let buffer_data = {
                 let buf = buffer_clone.lock().unwrap();
@@ -524,20 +531,6 @@ fn handle_websocket(
         }
     }
 }
-
-// // Create a WebSocket message struct that matches RdpBitmapEvent field names
-// #[derive(Serialize)]
-// struct WsBitmapEvent {
-//     bpp: u16,
-//     width: u16,
-//     height: u16,
-//     dest_left: u16,
-//     dest_top: u16,
-//     dest_right: u16,
-//     dest_bottom: u16,
-//     data: Vec<u8>,
-//     is_compress: bool,
-// }
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]

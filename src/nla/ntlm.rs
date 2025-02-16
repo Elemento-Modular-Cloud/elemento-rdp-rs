@@ -265,8 +265,8 @@ fn z(m: usize) -> Vec<u8> {
 /// ```
 fn md4(data: &[u8]) -> Vec<u8> {
     let mut hasher = Md4::new();
-    hasher.input(data);
-    hasher.result().to_vec()
+    hasher.update(data);
+    hasher.finalize().to_vec()
 }
 
 /// Compute the MD5 Hash of input vector
@@ -280,8 +280,8 @@ fn md4(data: &[u8]) -> Vec<u8> {
 /// ```
 fn md5(data: &[u8]) -> Vec<u8> {
     let mut hasher = Md5::new();
-    hasher.input(data);
-    hasher.result().to_vec()
+    hasher.update(data);
+    hasher.finalize().to_vec()
 }
 
 /// Encode a string into utf-16le
@@ -311,9 +311,10 @@ fn unicode(data: &String) -> Vec<u8> {
 /// let signature = hmac_md5(b"foo", b"bar");
 /// ```
 fn hmac_md5(key: &[u8], data: &[u8]) -> Vec<u8> {
-    let mut stream = Hmac::<Md5>::new_varkey(key).unwrap();
-    stream.input(data);
-    stream.result().code().to_vec()
+    let mut mac = Hmac::<Md5>::new_from_slice(key)
+        .expect("HMAC can take key of any size");
+    mac.update(data);
+    mac.finalize().into_bytes().to_vec()
 }
 
 /// This function is used to compute init key of another hmac_md5
@@ -739,7 +740,7 @@ mod test {
     fn test_ntlmv2_negotiate_message() {
         let mut buffer = Cursor::new(Vec::new());
         Ntlm::new("".to_string(), "".to_string(), "".to_string()).create_negotiate_message().unwrap().write(&mut buffer).unwrap();
-        assert_eq!(buffer.get_ref().as_slice(), [78, 84, 76, 77, 83, 83, 80, 0, 1, 0, 0, 0, 53, 130, 8, 96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(buffer.get_ref().as_slice(), [78, 84, 76, 77, 83, 83, 80, 0, 1, 0, 0, 0, 53, 130, 8, 96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     }
 
     /// Test of md4 hash function
