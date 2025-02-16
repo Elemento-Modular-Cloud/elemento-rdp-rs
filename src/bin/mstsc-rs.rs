@@ -34,7 +34,7 @@ use std::os::unix::io::{AsRawFd};
 #[cfg(target_os = "macos")]
 use std::os::unix::io::{AsRawFd};
 use rdp::core::event::{RdpEvent, BitmapEvent as RdpBitmapEvent, PointerEvent, PointerButton, KeyboardEvent};
-use std::convert::TryFrom;
+// use std::convert::TryFrom;
 use std::thread;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{JoinHandle};
@@ -213,7 +213,7 @@ fn bitmap_loop<S: Read + Write>(
         let now = Instant::now();
 
         // Process bitmap updates at ~30 Hz
-        while now.elapsed().as_micros() < 16600 * 2 {
+        while now.elapsed().as_micros() < 5000 {
             match bitmap_receiver.try_recv() {
                 Ok(bitmap) => {
                     let mut buf = buffer.lock().unwrap();
@@ -228,7 +228,7 @@ fn bitmap_loop<S: Read + Write>(
         }
 
         // Add a small sleep to prevent busy-waiting
-        std::thread::sleep(std::time::Duration::from_millis(1));
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
 
     sync.store(false, Ordering::Relaxed);
@@ -520,19 +520,19 @@ fn handle_websocket(
     }
 }
 
-// Create a WebSocket message struct that matches RdpBitmapEvent field names
-#[derive(Serialize)]
-struct WsBitmapEvent {
-    bpp: u16,
-    width: u16,
-    height: u16,
-    dest_left: u16,
-    dest_top: u16,
-    dest_right: u16,
-    dest_bottom: u16,
-    data: Vec<u8>,
-    is_compress: bool,
-}
+// // Create a WebSocket message struct that matches RdpBitmapEvent field names
+// #[derive(Serialize)]
+// struct WsBitmapEvent {
+//     bpp: u16,
+//     width: u16,
+//     height: u16,
+//     dest_left: u16,
+//     dest_top: u16,
+//     dest_right: u16,
+//     dest_bottom: u16,
+//     data: Vec<u8>,
+//     is_compress: bool,
+// }
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
