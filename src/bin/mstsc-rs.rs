@@ -38,24 +38,22 @@ use rdp::core::event::{RdpEvent, BitmapEvent as RdpBitmapEvent, PointerEvent, Po
 // use std::convert::TryFrom;
 use std::thread;
 use std::sync::{mpsc, Arc, Mutex};
-use std::thread::{JoinHandle};
+use std::thread::JoinHandle;
 use std::sync::atomic::{AtomicBool, Ordering};
 use rdp::model::error::{Error, RdpErrorKind, RdpError, RdpResult};
 use clap::{Command, Arg};
 use rdp::core::gcc::KeyboardLayout;
 use std::sync::mpsc::{Sender, Receiver};
-use serde::{Serialize, Deserialize};
+use serde::Deserialize;
 use websocket::{Message, OwnedMessage, sync::Server};
 use websocket::sync::{Writer, Reader};
 use std::intrinsics::copy_nonoverlapping;
-// use websocket::sync::Client;
-// use certificate::X509Certificate;
 
 const APPLICATION_NAME: &str = "mstsc-rs";
-const REFRESH_RATE_hz: u128 = 60;
-const BUFFER_UPDATE_INTERVAL_us: u128 = 1_000_000 / REFRESH_RATE_hz;
-const THREAD_SLEEP_TIME_ms: u64 = 1;
-const BUFFER_SEND_INTERVAL_ms: u64 = 1000 / REFRESH_RATE_hz as u64;
+const REFRESH_RATE_HZ: u128 = 120;
+const BUFFER_UPDATE_INTERVAL_US: u128 = 1_000_000 / REFRESH_RATE_HZ;
+const THREAD_SLEEP_TIME_MS: u64 = 1;
+const BUFFER_SEND_INTERVAL_MS: u64 = 1000 / REFRESH_RATE_HZ as u64;
 
 
 #[cfg(target_os = "macos")]
@@ -220,7 +218,7 @@ fn bitmap_loop<S: Read + Write>(
         let now = Instant::now();
 
         // Process bitmap updates at ~30 Hz
-        while now.elapsed().as_micros() < BUFFER_UPDATE_INTERVAL_us {
+        while now.elapsed().as_micros() < BUFFER_UPDATE_INTERVAL_US {
             match bitmap_receiver.try_recv() {
                 Ok(bitmap) => {
                     let mut buf = buffer.lock().unwrap();
@@ -235,7 +233,7 @@ fn bitmap_loop<S: Read + Write>(
         }
 
         // Add a small sleep to prevent busy-waiting
-        std::thread::sleep(std::time::Duration::from_millis(THREAD_SLEEP_TIME_ms));
+        std::thread::sleep(std::time::Duration::from_millis(THREAD_SLEEP_TIME_MS));
     }
 
     sync.store(false, Ordering::Relaxed);
@@ -258,6 +256,11 @@ fn main() {
             .takes_value(true)
             .default_value("3389")
             .help("Destination Port"))
+        .arg(Arg::new("ws_port")
+            .long("ws_port")
+            .takes_value(true)
+            .default_value("9000")
+            .help("WebSocket Port"))
         .arg(Arg::new("width")
             .long("width")
             .takes_value(true)
@@ -346,9 +349,10 @@ fn main() {
         bitmap_sender
     ).unwrap();
 
+    let ws_port: String = matches.value_of("ws_port").unwrap_or("9000").parse().unwrap();
     // Start WebSocket server
-    let server = Server::bind("127.0.0.1:9000").unwrap();
-    println!("WebSocket server listening on port 9000");
+    let server = Server::bind(&format!("127.0.0.1:{}", ws_port)).unwrap();
+    println!("WebSocket server listening on port {}", ws_port);
 
     // Create a clone of the buffer for the bitmap loop
     let buffer_clone = Arc::clone(&buffer);
@@ -372,7 +376,7 @@ fn main() {
     let sync_clone = Arc::clone(&sync);
     let ws_sender = thread::spawn(move || {
         while sync_clone.load(Ordering::Relaxed) {
-            thread::sleep(std::time::Duration::from_millis(BUFFER_SEND_INTERVAL_ms));
+            thread::sleep(std::time::Duration::from_millis(BUFFER_SEND_INTERVAL_MS));
 
             let buffer_data = {
                 let buf = buffer_clone.lock().unwrap();
@@ -539,32 +543,4 @@ enum WsInputEvent {
     #[serde(rename = "scancode")]
     Keyboard { #[serde(rename = "scancode")] code: u16, #[serde(rename = "is_pressed")] down: bool },
     Wheel { x: i32, y: i32, delta: i32 },
-}
-
-// Custom serialization for PointerButton
-mod pointer_button_serde {
-    // use super::PointerButton;
-    use serde::{Deserialize, Deserializer};
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<u8, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let value = u8::deserialize(deserializer)?;
-        Ok(match value {
-            0 => 0, // None
-            1 => 1, // Left
-            2 => 2, // Right
-            3 => 3, // Middle
-            _ => 0  // Default to None for unknown values
-        })
-    }
-}
-
-// Add this new struct for WebSocket buffer updates
-#[derive(Serialize)]
-struct WsBufferUpdate {
-    width: u16,
-    height: u16,
-    buffer: Vec<u32>,
 }
